@@ -22,11 +22,10 @@ describe("Redux helpers tests",
 			it("createAction can use empty payload",
 				() =>
 				{
-					const anActionFactory = Helpers.createFactory<string>("ACTION");
+					const anActionFactory = Helpers.createFactory<string | undefined>("ACTION");
+					const anAction = anActionFactory.createAction(undefined);
 
-					const anAction = anActionFactory.createAction();
-
-					expect(anAction.payload).toBeNull();
+					expect(anAction.payload).toBeUndefined();
 				});
 				
 			it("createAction with payload === false doesn't change action's payload",
@@ -42,21 +41,22 @@ describe("Redux helpers tests",
 			it("reducer processes actions from same factory",
 				() =>
 				{
-					interface State
+					type State = undefined |
 					{
-						a: string;
+						a: string | null;
 					}
 
 					const anActionFactory = Helpers.createFactory<string>("ACTION");
 
 					const anAction = anActionFactory.createAction("abacaba");
-					const aReducer = anActionFactory.createReducer<State>((state, action) => ({ a: action.payload }));
+					const aReducer = anActionFactory.createReducer<State>((state, action) => ({ a: action.payload }), undefined);
 
 
 					const expectedState = aReducer.reducer({a: null}, anAction);
 
 
-					expect(expectedState.a).toEqual("abacaba");
+					expect(expectedState).toBeDefined();
+					expect(expectedState!.a).toEqual("abacaba");
 				});
 
 			it("primitive reducer set primtive type state",
@@ -93,10 +93,10 @@ describe("Redux helpers tests",
 				() =>
 				{
 					const anAnotherActionFactory = Helpers.createFactory<string>("ANOTHER_ACTION");
-					const anActionFactory = Helpers.createFactory<string>("ACTION");
+					const anActionFactory = Helpers.createFactory<string | undefined>("ACTION");
 
 					const anActionForAnotherReducer = anAnotherActionFactory.createAction("payload");
-					const aReducer = anActionFactory.createPrimitiveReducer("defaultState");
+					const aReducer = anActionFactory.createPrimitiveReducer<string | undefined>("defaultState");
 
 
 					const expectedState = aReducer.reducer(undefined, anActionForAnotherReducer);
@@ -108,11 +108,11 @@ describe("Redux helpers tests",
 			it("reducers returns not modified state for 'misstyped' action",
 				() =>
 				{
-					const alphaActionFactory = Helpers.createFactory<string>("ALPHA");
+					const alphaActionFactory = Helpers.createFactory<string | undefined>("ALPHA");
 					const betaActionFactory = Helpers.createFactory<string>("BETA");
 
-					const alphaReducer = alphaActionFactory.createReducer<string>(
-						(state, action) => action.payload);
+					const alphaReducer = alphaActionFactory.createReducer<string | undefined>(
+						(state, action) => action.payload!, undefined);
 
 					const betaAction = betaActionFactory.createAction("B");
 
@@ -129,7 +129,7 @@ describe("Redux helpers tests",
 					const alphaActionFactory = Helpers.createFactory<string>("ALPHA");
 					const betaActionFactory = Helpers.createFactory<string>("BETA");
 
-					const alphaReducer = alphaActionFactory.createReducer<string>(
+					const alphaReducer = alphaActionFactory.createReducer<string | undefined>(
 						(state, action) => action.payload,
 						"initialState");
 
@@ -152,7 +152,7 @@ describe("Redux helpers tests",
 						true
 					).reducer;
 					
-					const actualState = reducer(false, { type: "@@INIT" });
+					const actualState = reducer(false, { type: "@@INIT", payload: false });
 					
 					expect(actualState).toEqual(false);
 				});
@@ -176,15 +176,17 @@ describe("Redux helpers tests",
 						const jointReducer = Helpers.joinReducers(
 							{ a: "" },
 							[
-								firstActionFactory.createReducer<State>((state, action) => ({ a: action.payload })),
-								secondActionFactory.createReducer<State>((state, action) => ({ a: action.payload.toUpperCase() }))
+								firstActionFactory.createReducer<State | undefined>((state, action) => ({ a: action.payload! }), undefined),
+								secondActionFactory.createReducer<State | undefined>((state, action) => ({ a: action.payload!.toUpperCase() }), undefined)
 							]);
 
-						const firstState = jointReducer(null, secondActionFactory.createAction("abacaba"));
+						const firstState = jointReducer(undefined, secondActionFactory.createAction("abacaba"));
 						const secondState = jointReducer(firstState, firstActionFactory.createAction("ololo"));
 
-						expect(firstState.a).toEqual("ABACABA");
-						expect(secondState.a).toEqual("ololo");
+						expect(firstState).toBeDefined()
+						expect(firstState!.a).toEqual("ABACABA");
+						expect(secondState).toBeDefined()
+						expect(secondState!.a).toEqual("ololo");
 					});
 
 				it("Default reducer have been used",
@@ -192,16 +194,15 @@ describe("Redux helpers tests",
 					{
 						interface State
 						{
-							a: string;
-							b: string;
+							a: string | null;
+							b: string | null;
 						}
 
 						const actionFactory = Helpers.createFactory<string>("ACTION");
-						const reducer = actionFactory.createReducer<State>((state, action) => ({ a: action.payload, b: null }));
+						const reducer = actionFactory.createReducer<State | undefined>((state, action) => ({ a: action.payload, b: null }), undefined);
 
 						const defaultActionFactory = Helpers.createFactory<string>("DEFAULT_ACTION");
-						const defaultReducer = (state: State, action: Helpers.Action<string>) => ({ a: state.a, b: action.payload });
-
+						const defaultReducer = (state: State | undefined, action: Helpers.Action<string>) => ({ a: state!.a, b: action.payload });
 
 						const jointReducer = Helpers.joinReducers(
 							{ a: null, b: null },
@@ -222,40 +223,22 @@ describe("Redux helpers tests",
 						}
 
 						const actionFactory = Helpers.createFactory<string>("ACTION");
-						const aReducer = actionFactory.createReducer<State>(() => ({}));
-						const bReducer = actionFactory.createReducer<State>(() => ({}));
+						const aReducer = actionFactory.createReducer<State | undefined>(() => ({}), undefined);
+						const bReducer = actionFactory.createReducer<State | undefined>(() => ({}), undefined);
 
 
-						expect(() => Helpers.joinReducers<State>({}, [aReducer, bReducer]))
+						expect(() => Helpers.joinReducers({}, [aReducer, bReducer]))
 							.toThrowError("Reducer with type \"ACTION\" had already been registered.");
-					});
-
-				it("Returns null in case of null current state",
-					() =>
-					{
-						interface State
-						{
-							a: string;
-						}
-
-						const initialState: State = { a: "abacaba" };
-						const jointReducer = Helpers.joinReducers<State>(initialState, []);
-
-
-						const actualState = jointReducer(null, { type: "ACTION" });
-
-
-						expect(actualState).toEqual(null);
 					});
 
 				it("Returns initial state in case of undefined current state",
 					() =>
 					{
 						const initialState = "abacaba";
-						const jointReducer = Helpers.joinReducers<string>(initialState, []);
+						const jointReducer = Helpers.joinReducers(initialState, []);
 
 
-						const actualState = jointReducer(undefined, { type: "ACTION"});
+						const actualState = jointReducer(undefined, { type: "ACTION", payload: undefined});
 
 
 						expect(actualState).toEqual(initialState);
@@ -264,10 +247,10 @@ describe("Redux helpers tests",
 				it("JointReducer with initialState === true doesn't change state on unexpected actions",
 					() =>
 					{
-						const jointReducer = Helpers.joinReducers<boolean>(true, []);
+						const jointReducer = Helpers.joinReducers(true, []);
 
 						const currentState = false;
-						const nextState = jointReducer(false, { type: "ACTION" });
+						const nextState = jointReducer(false, { type: "ACTION", payload: undefined });
 
 						expect(nextState).toEqual(currentState);
 					});

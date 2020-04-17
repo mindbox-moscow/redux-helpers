@@ -7,9 +7,12 @@
         "target": "ES5",
         "sourceMap": true,
         "moduleResolution": "node",
+        "strictNullChecks": true,
         "types": [
             "jasmine"
-        ]
+        ],
+        "strictFunctionTypes": true,
+        "strictPropertyInitialization": true,
     },
     "exclude": [
         "node_modules"

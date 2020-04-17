@@ -1,5 +1,6 @@
 ﻿import * as Redux from "redux";
-import { createAction as reduxCreateAction } from "redux-actions";
+import * as actions from "redux-actions";
+import { createAction as reduxCreateAction, ActionFunction1 } from "redux-actions";
 
 type Primitive = string | number | boolean;
 
@@ -10,7 +11,7 @@ export interface BaseAction
 
 export interface Action<TPayload> extends BaseAction
 {
-	payload?: TPayload;
+	payload: TPayload;
 	error?: boolean;
 }
 
@@ -19,15 +20,15 @@ export interface Action<TPayload> extends BaseAction
  * @template TState store's current brunch type.
  * @template TPayload action's payload type.
  */
-export class GuardedFactory<TPayload>
+export class GuardedTypeOnlyFactory
 {
 	private _type: string;
-	private _actionCreator: (...args: TPayload[]) => Action<TPayload>;
+	private _actionCreator: (...args: BaseAction[]) => BaseAction;
 
 	constructor(type: string)
 	{
 		this._type = type;
-		this._actionCreator = reduxCreateAction<TPayload>(this._type.toString());
+		this._actionCreator = reduxCreateAction(this._type.toString());
 	}
 
 	public get type()
@@ -39,17 +40,69 @@ export class GuardedFactory<TPayload>
 	 * Creates an action creator.
 	 * @param payload payload for an action. If not passed null will be used as payload.
 	 */
-	public createAction(payload: TPayload = null): Action<TPayload>
+	public createAction(): BaseAction
 	{
-		return this._actionCreator(payload);
+		return this._actionCreator();
 	}
 
+	
 	/**
 	 * Creates a reducer, bounded to concrete type.
 	 * @param reducer reducer.
 	 * @param initialState initialState.
 	 */
-	public createReducer<TState>(reducer: (state: TState, action: Action<TPayload>) => TState, initialState?: TState)
+	public createReducer<TState>(reducer: (state: TState, action: BaseAction) => TState, initialState: TState) : GuardedReducer<undefined, TState>
+	{
+		const actionReducer = (state: TState = initialState, action: BaseAction) =>
+		{
+			if (is(action, this._type))
+				return reducer(state, action);
+
+			return state;
+		};
+
+		return new GuardedReducer<undefined, TState>(this._type, actionReducer);
+	}
+}
+
+export class GuardedFactory<TPayload>
+{
+	private _type: string;
+	private _actionCreator: (...args: Array<TPayload>) => Action<TPayload>;
+
+	constructor(type: string)
+	{
+		this._type = type;
+		const typeWrapper = (func: ActionFunction1<TPayload, actions.Action<TPayload>>) => {
+			return (arg: TPayload): Action<TPayload> => { 
+				const action = func(arg)
+				return { ...action, payload: action.payload! }
+			}
+		}
+		this._actionCreator = typeWrapper(reduxCreateAction<TPayload>(this._type.toString()));
+	}
+
+	public get type()
+	{
+		return this._type;
+	}
+
+	/**
+	 * Creates an action creator.
+	 * @param payload payload for an action. If not passed null will be used as payload.
+	 */
+	public createAction(payload: TPayload): Action<TPayload>
+	{
+		return this._actionCreator(payload);
+	}
+
+	
+	/**
+	 * Creates a reducer, bounded to concrete type.
+	 * @param reducer reducer.
+	 * @param initialState initialState.
+	 */
+	public createReducer<TState>(reducer: (state: TState, action: Action<TPayload>) => TState, initialState: TState)
 	{
 		const actionReducer = (state: TState = initialState, action: Action<TPayload>) =>
 		{
@@ -69,9 +122,9 @@ export class GuardedFactory<TPayload>
 	 * It helps to remove boilerplate code like "MY_ACTION.createReducer<boolean>((state, action) => action.payload)".
 	 * @param initialState initialState.
 	 */
-	public createPrimitiveReducer<TState extends TPayload & (Primitive | Array<Primitive>)>(initialState: TState)
+	public createPrimitiveReducer<TState extends undefined | TPayload & (Primitive | Array<Primitive>)>(initialState: TState)
 	{
-		return this.createReducer<TPayload>((state, action) => action.payload, initialState);
+		return this.createReducer<TPayload>((_, action) => action.payload, initialState!);
 	}
 }
 
@@ -115,10 +168,10 @@ class GuardedReducer<TPayload, TState> implements GuardedReducerBase<TPayload, T
 * @param actionReducers a set of reducers with type.
 * @param defaultReducer default reducer.
 */
-export const joinReducers = <TState>(
+export const joinReducers = <TState, TPayload>(
 		initialState: TState,
 		actionReducers: GuardedReducerBase<any, TState>[],
-		defaultReducer?: <TAction extends Redux.Action>(state: TState, action: TAction) => TState) =>
+		defaultReducer?: (state: TState, action: Action<TPayload>) => TState) =>
 	{
 		const actionReducerMap: Redux.ReducersMapObject = {};
 
@@ -126,7 +179,13 @@ export const joinReducers = <TState>(
 		{
 			if (actionReducerMap[actionReducer.type] != null)
 				throw new Error(`Reducer with type "${actionReducer.type}" had already been registered.`);
-			actionReducerMap[actionReducer.type] = actionReducer.reducer;
+
+			const typeWrapper = (func: (state: TState, action: Action<any>) => TState) => {
+				return (state: TState, action: Redux.AnyAction): TState => {
+					return func(state, action as Action<any>);
+				}
+			}
+			actionReducerMap[actionReducer.type] = typeWrapper(actionReducer.reducer);
 		}
 
 		const reducer = (
@@ -153,9 +212,9 @@ export const joinReducers = <TState>(
  * @param type required action type.
  * @template TPayload action's payload type.
  */
-const is = <TPayload>(
-	action: Action<TPayload>,
-	type: string): action is Action<TPayload> => action.type === type;
+const is = (
+	action: BaseAction,
+	type: string): action is BaseAction => action.type === type;
 
 /**
  * Create action creator's and action reducer's factory.
@@ -163,3 +222,4 @@ const is = <TPayload>(
  * @template TPayload action's payload type.
  */
 export const createFactory = <TPayload>(type: string) => new GuardedFactory<TPayload>(type);
+export const createTypeOnlyFactory = (type: string) => new GuardedTypeOnlyFactory(type);
